@@ -23,7 +23,10 @@ app = FastAPI(title="QueryMind API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://querymind-hvgq.vercel.app",
+        "http://localhost:5173",  # local dev
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
