@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: querymind-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false          # Set manually in Render dashboard (use Neon.tech URL)
+      - key: REDIS_URL
+        sync: false          # Set manually in Render dashboard (Upstash URL)
+      - key: MAX_RETRIES
+        value: "3"
+      - key: CACHE_TTL
+        value: "3600"
+      - key: SIMILARITY_THRESHOLD
+        value: "0.92"
+      - key: USE_OLLAMA
+        value: "false"
+    healthCheckPath: /health
