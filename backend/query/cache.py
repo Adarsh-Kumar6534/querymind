@@ -1,7 +1,6 @@
 import redis
 import json
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from config import settings
 import hashlib
 
@@ -18,6 +17,8 @@ def _get_redis():
 def _get_model():
     global _model
     if _model is None:
+        # Import inside function so it never runs at module load time
+        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("all-MiniLM-L6-v2")
     return _model
 
