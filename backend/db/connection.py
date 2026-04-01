@@ -2,14 +2,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from config import settings
 
-engine = create_engine(
-    settings.database_url,
-    echo=False,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def _make_engine():
+    url = settings.database_url
+    kwargs = dict(echo=False, pool_pre_ping=True, pool_size=5, max_overflow=10)
+    # Neon / cloud Postgres requires SSL
+    if "neon.tech" in url or "sslmode" not in url and url.startswith("postgresql"):
+        kwargs["connect_args"] = {"sslmode": "require"}
+    return create_engine(url, **kwargs)
+
+try:
+    engine = _make_engine()
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+except Exception as e:
+    import sys
+    print(f"[STARTUP ERROR] Could not create DB engine: {e}", file=sys.stderr)
+    raise
 
 def get_db():
     db = SessionLocal()

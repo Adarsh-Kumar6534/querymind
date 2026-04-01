@@ -16,8 +16,14 @@ from config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ensure_history_table()
+    try:
+        ensure_history_table()
+        print("[STARTUP] History table ready.")
+    except Exception as e:
+        print(f"[STARTUP WARNING] Could not initialize history table: {e}")
+        print("[STARTUP] App will continue — check your DATABASE_URL env var in Render.")
     yield
+
 
 app = FastAPI(title="QueryMind API", version="1.0.0", lifespan=lifespan)
 
@@ -109,7 +115,8 @@ async def history(limit: int = 20):
 
 @app.delete("/cache")
 async def clear_cache():
-    import redis as r
-    client = r.from_url(settings.redis_url)
+    from query.cache import _get_redis
+    client = _get_redis()
     client.flushdb()
     return {"message": "Cache cleared successfully"}
+
