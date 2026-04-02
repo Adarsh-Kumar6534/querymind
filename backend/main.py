@@ -1,3 +1,5 @@
+import logging
+import sys
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,14 +16,28 @@ from csv_handler import upload_csv_to_postgres
 from chart_detector import detect_chart
 from config import settings
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         ensure_history_table()
-        print("[STARTUP] History table ready.")
+        logger.info("[STARTUP] History table ready.")
     except Exception as e:
-        print(f"[STARTUP WARNING] Could not initialize history table: {e}")
-        print("[STARTUP] App will continue — check your DATABASE_URL env var in Render.")
+        logger.warning(f"[STARTUP] Could not initialize history table: {e}")
+        logger.warning("[STARTUP] App will continue — check your DATABASE_URL env var in Render.")
+
+    # Log startup info
+    logger.info(f"[STARTUP] QueryMind API v1.0.0 starting")
+    logger.info(f"[STARTUP] Database: {'neon.tech' in settings.database_url and 'Neon' or 'PostgreSQL'}")
+    logger.info(f"[STARTUP] Redis cache: {'configured' if settings.redis_url else 'not configured'}")
+    logger.info(f"[STARTUP] LLM: {'Ollama' if settings.use_ollama else 'Groq (llama-3.1-8b-instant)'}")
     yield
 
 
@@ -57,16 +73,34 @@ async def schema():
 
 @app.post("/query")
 async def query(req: QueryRequest):
+    logger.info(f"[QUERY] Received question: {req.question[:100]}...")
+
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    cached = await cache_get(req.question)
-    if cached:
-        return cached
+    try:
+        cached = await cache_get(req.question)
+        if cached:
+            logger.info(f"[QUERY] Cache hit (score: {cached.get('cache_score', 'N/A')})")
+            return cached
+        logger.info("[QUERY] Cache miss, generating SQL...")
+    except Exception as e:
+        logger.warning(f"[QUERY] Cache lookup failed, proceeding without cache: {e}")
 
-    schema = get_schema_string()
-    prompt = build_prompt(schema, req.question)
-    initial_sql = await generate_sql(prompt)
+    try:
+        schema = get_schema_string()
+        logger.info(f"[QUERY] Schema retrieved ({len(schema)} bytes)")
+    except Exception as e:
+        logger.error(f"[QUERY] Failed to get schema: {e}")
+        raise HTTPException(status_code=503, detail=f"Database schema unavailable: {e}")
+
+    try:
+        prompt = build_prompt(schema, req.question)
+        initial_sql = await generate_sql(prompt)
+        logger.info(f"[QUERY] Generated SQL: {initial_sql[:200]}...")
+    except Exception as e:
+        logger.error(f"[QUERY] LLM generation failed: {e}")
+        raise HTTPException(status_code=504, detail=f"LLM timeout: {e}")
 
     result = await execute_with_self_correction(
         initial_sql=initial_sql,
@@ -75,31 +109,44 @@ async def query(req: QueryRequest):
         engine=engine
     )
 
-    chart_config = detect_chart(result["data"])
+    if not result["success"]:
+        logger.error(f"[QUERY] Execution failed after {result['attempts']} attempts: {result.get('error')}")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Could not generate valid SQL after retries",
+                "last_sql": result["sql"],
+                "error": result.get("error"),
+                "attempts": result["attempts"]
+            }
+        )
 
-    save_query(
-        question=req.question,
-        sql=result["sql"],
-        row_count=len(result["data"]),
-        attempts=result["attempts"],
-        success=result["success"],
-        error=result.get("error")
-    )
+    try:
+        chart_config = detect_chart(result["data"])
+    except Exception as e:
+        logger.warning(f"[QUERY] Chart detection failed: {e}")
+        chart_config = None
 
-    if result["success"]:
+    try:
+        save_query(
+            question=req.question,
+            sql=result["sql"],
+            row_count=len(result["data"]),
+            attempts=result["attempts"],
+            success=result["success"],
+            error=result.get("error")
+        )
+    except Exception as e:
+        logger.warning(f"[QUERY] Failed to save history: {e}")
+
+    try:
         response = {**result, "chart": chart_config, "from_cache": False}
         await cache_set(req.question, response)
-        return response
+    except Exception as e:
+        logger.warning(f"[QUERY] Cache set failed: {e}")
 
-    raise HTTPException(
-        status_code=422,
-        detail={
-            "message": "Could not generate valid SQL after retries",
-            "last_sql": result["sql"],
-            "error": result["error"],
-            "attempts": result["attempts"]
-        }
-    )
+    logger.info(f"[QUERY] Success! {len(result['data'])} rows returned")
+    return response
 
 @app.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):

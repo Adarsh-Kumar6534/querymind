@@ -5,8 +5,8 @@ from config import settings
 def _make_engine():
     url = settings.database_url
     kwargs = dict(echo=False, pool_pre_ping=True, pool_size=5, max_overflow=10)
-    # Neon / cloud Postgres requires SSL
-    if "neon.tech" in url or "sslmode" not in url and url.startswith("postgresql"):
+    # Only require SSL for cloud-hosted Postgres (Neon, Render, etc.)
+    if "neon.tech" in url or "render.com" in url:
         kwargs["connect_args"] = {"sslmode": "require"}
     return create_engine(url, **kwargs)
 
