@@ -9,11 +9,14 @@ def _make_engine():
     url = settings.database_url
     connect_args = {
         "connect_timeout": 10,  # Connection timeout
-        "options": "-c statement_timeout=30000"  # 30s statement timeout
     }
     # Only require SSL for cloud-hosted Postgres (Neon, Render, etc.)
-    if "neon.tech" in url or "render.com" in url:
+    # Note: Neon doesn't support statement_timeout in connection options
+    if "neon.tech" in url:
         connect_args["sslmode"] = "require"
+    elif "render.com" in url:
+        connect_args["sslmode"] = "require"
+        connect_args["options"] = "-c statement_timeout=30000"
 
     return create_engine(
         url,
