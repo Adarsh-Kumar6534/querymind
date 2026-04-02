@@ -5,13 +5,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DB_TIMEOUT_SECONDS = 30
-
 def execute_query(sql: str, engine: Engine) -> list[dict]:
+    """Execute SQL query and return results as list of dicts."""
     with engine.connect() as conn:
-        result = conn.execute(text(sql), execution_options={"stream_results": True})
+        logger.info(f"Executing SQL on DB...")
+        result = conn.execute(
+            text(sql),
+            execution_options={"stream_results": True, "execution_options": {"stream_results": True}}
+        )
         rows = result.fetchall()
         columns = list(result.keys())
+        logger.info(f"Query returned {len(rows)} rows")
         return [dict(zip(columns, row)) for row in rows]
 
 

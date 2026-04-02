@@ -3,71 +3,57 @@ from llm.prompt_builder import build_correction_prompt
 from query.executor import execute_query
 from config import settings
 import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
 
-QUERY_TIMEOUT_SECONDS = 60  # Total timeout for entire query process
 
-async def execute_with_self_correction(
+def execute_with_self_correction(
     initial_sql: str,
     schema: str,
     question: str,
     engine
 ) -> dict:
+    """Execute SQL with self-correction loop. Returns result dict with success status."""
     sql = initial_sql
     last_error = None
 
-    async def _execute_attempt(attempt: int):
-        logger.info(f"Attempt {attempt}: executing SQL")
-        result = execute_query(sql, engine)
-        logger.info(f"Success on attempt {attempt}")
-        return {
-            "sql": sql,
-            "data": result,
-            "attempts": attempt,
-            "success": True,
-            "error": None
-        }
-
     for attempt in range(1, settings.max_retries + 1):
         try:
-            result = await asyncio.wait_for(
-                _execute_attempt(attempt),
-                timeout=30  # 30s per execution attempt
-            )
-            return result
-        except asyncio.TimeoutError:
-            last_error = f"Query execution timed out after 30 seconds (attempt {attempt})"
-            logger.warning(f"Attempt {attempt} timed out: {last_error}")
+            logger.info(f"[ATTEMPT {attempt}] Executing SQL: {sql[:80]}...")
+            result = execute_query(sql, engine)
+            logger.info(f"[ATTEMPT {attempt}] Success! Retrieved {len(result)} rows")
+            return {
+                "sql": sql,
+                "data": result,
+                "attempts": attempt,
+                "success": True,
+                "error": None
+            }
         except Exception as e:
             last_error = str(e)
-            logger.warning(f"Attempt {attempt} failed: {last_error}")
+            logger.warning(f"[ATTEMPT {attempt}] Failed: {last_error}")
 
-        if attempt < settings.max_retries:
-            try:
-                logger.info("Sending error to LLM for correction...")
-                correction_prompt = build_correction_prompt(
-                    schema=schema,
-                    question=question,
-                    failed_sql=sql,
-                    error=last_error
-                )
-                sql = await generate_sql(correction_prompt)
-                logger.info(f"LLM corrected SQL: {sql}")
-            except asyncio.TimeoutError:
-                last_error = "LLM correction timed out"
-                logger.error(f"LLM correction timed out on attempt {attempt}")
-                break
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"LLM correction failed: {e}")
-                break
+            if attempt < settings.max_retries:
+                try:
+                    logger.info(f"[ATTEMPT {attempt}] Requesting LLM correction...")
+                    correction_prompt = build_correction_prompt(
+                        schema=schema,
+                        question=question,
+                        failed_sql=sql,
+                        error=last_error
+                    )
+                    sql = generate_sql(correction_prompt)  # Now sync, has built-in timeout
+                    logger.info(f"[ATTEMPT {attempt}] LLM provided corrected SQL: {sql[:80]}...")
+                except Exception as correction_error:
+                    last_error = f"LLM correction failed: {correction_error}"
+                    logger.error(f"[ATTEMPT {attempt}] Correction failed: {last_error}")
+                    break
 
+    logger.error(f"All {settings.max_retries} attempts exhausted. Last error: {last_error}")
     return {
         "sql": sql,
         "data": [],
-        "attempts": attempt,
+        "attempts": settings.max_retries,
         "success": False,
         "error": last_error
     }

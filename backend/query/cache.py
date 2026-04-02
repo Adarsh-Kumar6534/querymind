@@ -4,11 +4,8 @@ import numpy as np
 from config import settings
 import hashlib
 import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
-
-CACHE_TIMEOUT_SECONDS = 10  # Fail fast if cache takes too long
 
 # Lazy singletons — initialized on first use, not at import time
 _redis_client = None
@@ -47,14 +44,18 @@ def _get_model():
 CACHE_INDEX_KEY = "querymind:cache_index"
 
 def _embed(text: str) -> list[float]:
-    return _get_model().encode(text).tolist()
+    model = _get_model()
+    if model is None:
+        return None
+    return model.encode(text).tolist()
 
 def _cosine_similarity(a: list, b: list) -> float:
     a, b = np.array(a), np.array(b)
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
-async def cache_get(question: str) -> dict | None:
-    async def _do_cache_get():
+def cache_get(question: str) -> dict | None:
+    """Get cached result for similar question. Returns None if no cache hit."""
+    try:
         r = _get_redis()
         if r is None:
             return None
@@ -70,6 +71,8 @@ async def cache_get(question: str) -> dict | None:
             return None
 
         query_embedding = _embed(question)
+        if query_embedding is None:
+            return None
 
         best_score = 0
         best_key = None
@@ -86,21 +89,17 @@ async def cache_get(question: str) -> dict | None:
                 result = json.loads(cached)
                 result["from_cache"] = True
                 result["cache_score"] = round(best_score, 4)
+                logger.info(f"[CACHE] Hit with score {best_score:.2f}")
                 return result
-        return None
-
-    try:
-        return await asyncio.wait_for(_do_cache_get(), timeout=CACHE_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        logger.warning("Cache get timed out")
         return None
     except Exception as e:
         logger.warning(f"Cache get failed: {e}")
         return None
 
 
-async def cache_set(question: str, result: dict) -> None:
-    async def _do_cache_set():
+def cache_set(question: str, result: dict) -> None:
+    """Cache query result with embedding for future similarity matching."""
+    try:
         r = _get_redis()
         if r is None:
             return
@@ -111,6 +110,8 @@ async def cache_set(question: str, result: dict) -> None:
 
         key = f"querymind:result:{hashlib.md5(question.encode()).hexdigest()}"
         embedding = _embed(question)
+        if embedding is None:
+            return
 
         serializable = json.loads(json.dumps(result, default=str))
         r.setex(key, settings.cache_ttl, json.dumps(serializable))
@@ -119,11 +120,7 @@ async def cache_set(question: str, result: dict) -> None:
         index = json.loads(index_raw) if index_raw else []
         index.append({"key": key, "embedding": embedding, "question": question})
         r.set(CACHE_INDEX_KEY, json.dumps(index))
-
-    try:
-        await asyncio.wait_for(_do_cache_set(), timeout=CACHE_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        logger.warning("Cache set timed out")
+        logger.info(f"[CACHE] Stored result for question")
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 

@@ -79,7 +79,7 @@ async def query(req: QueryRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     try:
-        cached = await cache_get(req.question)
+        cached = cache_get(req.question)
         if cached:
             logger.info(f"[QUERY] Cache hit (score: {cached.get('cache_score', 'N/A')})")
             return cached
@@ -102,7 +102,7 @@ async def query(req: QueryRequest):
         logger.error(f"[QUERY] LLM generation failed: {e}")
         raise HTTPException(status_code=504, detail=f"LLM timeout: {e}")
 
-    result = await execute_with_self_correction(
+    result = execute_with_self_correction(
         initial_sql=initial_sql,
         schema=schema,
         question=req.question,
@@ -141,7 +141,7 @@ async def query(req: QueryRequest):
 
     try:
         response = {**result, "chart": chart_config, "from_cache": False}
-        await cache_set(req.question, response)
+        cache_set(req.question, response)
     except Exception as e:
         logger.warning(f"[QUERY] Cache set failed: {e}")
 

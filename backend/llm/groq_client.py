@@ -1,24 +1,28 @@
 from groq import Groq
 import httpx
-import asyncio
 from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-groq_client = Groq(
-    api_key=settings.groq_api_key,
-    timeout=15.0  # 15 second timeout for LLM calls
+# Create httpx client with explicit timeouts
+_httpx_client = httpx.Client(
+    timeout=15.0,
+    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
 )
 
-LLM_TIMEOUT_SECONDS = 20
+groq_client = Groq(
+    api_key=settings.groq_api_key,
+    http_client=_httpx_client
+)
 
 async def generate_sql(prompt: str) -> str:
     if settings.use_ollama:
         return await _ollama_generate(prompt)
 
-    def _call_groq():
-        return groq_client.chat.completions.create(
+    try:
+        logger.info("Calling Groq API for SQL generation...")
+        completion = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
@@ -35,17 +39,9 @@ async def generate_sql(prompt: str) -> str:
             temperature=0.1,
             max_tokens=512,
         )
-
-    try:
-        completion = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, _call_groq),
-            timeout=LLM_TIMEOUT_SECONDS
-        )
         raw = completion.choices[0].message.content.strip()
+        logger.info(f"Groq API responded with {len(raw)} chars")
         return _clean_sql(raw)
-    except asyncio.TimeoutError:
-        logger.error("LLM generation timed out")
-        raise TimeoutError("LLM generation timed out after 20 seconds")
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
         raise
