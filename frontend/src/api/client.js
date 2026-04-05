@@ -1,12 +1,17 @@
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+let API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+
+// Ensure URL doesn't end with a slash to avoid double slashes when appending endpoints
+if (API_URL.endsWith('/')) {
+  API_URL = API_URL.slice(0, -1)
+}
 
 console.log('[API] Using backend URL:', API_URL)
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000 // 30 second timeout
+  timeout: 60000 // Increase to 60 seconds for Render cold starts
 })
 
 // Add logging interceptor

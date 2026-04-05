@@ -169,21 +169,26 @@ async def query(req: QueryRequest):
 @api_router.post("/upload-csv")
 @app.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
+    logger.info(f"[UPLOAD] Starting for file: {file.filename}")
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     try:
         contents = await file.read()
+        logger.info(f"[UPLOAD] File read complete ({len(contents)} bytes)")
         info = upload_csv_to_postgres(contents, file.filename)
+        logger.info(f"[UPLOAD] Success: {info['table_name']}")
         return {"message": "CSV uploaded and table created successfully", **info}
     except ValueError as e:
+        logger.warning(f"[UPLOAD] Bad CSV: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"[UPLOAD] Failed: {e}")
+        logger.error(f"[UPLOAD] Critical failure: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @api_router.get("/history")
 @app.get("/history")
 async def history(limit: int = 20):
+    logger.info(f"[HISTORY] Fetching latest {limit} records")
     return {"history": get_history(limit)}
 
 @api_router.delete("/cache")
