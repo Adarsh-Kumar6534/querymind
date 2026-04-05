@@ -7,25 +7,30 @@ logger = logging.getLogger(__name__)
 
 def _make_engine():
     url = settings.database_url
+    # Fix for Render/Heroku/Neon providing postgres:// instead of postgresql://
+    if url and url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+
     connect_args = {
-        "connect_timeout": 10,  # Connection timeout
+        "connect_timeout": 15,  # Slightly increased connection timeout
     }
     # Only require SSL for cloud-hosted Postgres (Neon, Render, etc.)
-    # Note: Neon doesn't support statement_timeout in connection options
-    if "neon.tech" in url:
+    if "neon.tech" in url or "render.com" in url or "elephantsql.com" in url:
         connect_args["sslmode"] = "require"
-    elif "render.com" in url:
-        connect_args["sslmode"] = "require"
-        connect_args["options"] = "-c statement_timeout=30000"
 
-    return create_engine(
-        url,
-        echo=False,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        connect_args=connect_args
-    )
+    try:
+        engine = create_engine(
+            url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            connect_args=connect_args
+        )
+        return engine
+    except Exception as e:
+        logger.error(f"[DB] Failed to create engine: {e}")
+        raise
 
 try:
     engine = _make_engine()

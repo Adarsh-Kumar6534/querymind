@@ -16,28 +16,34 @@ groq_client = Groq(
     http_client=_httpx_client
 )
 
+import asyncio
+
 async def generate_sql(prompt: str) -> str:
     if settings.use_ollama:
         return await _ollama_generate(prompt)
 
     try:
         logger.info("Calling Groq API for SQL generation...")
-        completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an expert PostgreSQL query generator. "
-                        "Always return ONLY the raw SQL query with no explanation, "
-                        "no markdown, no backticks, no comments. "
-                        "The query must be valid PostgreSQL syntax."
-                    )
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=512,
+        # Run blocking Groq call in executor
+        completion = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert PostgreSQL query generator. "
+                            "Always return ONLY the raw SQL query with no explanation, "
+                            "no markdown, no backticks, no comments. "
+                            "The query must be valid PostgreSQL syntax."
+                        )
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=512,
+            )
         )
         raw = completion.choices[0].message.content.strip()
         logger.info(f"Groq API responded with {len(raw)} chars")

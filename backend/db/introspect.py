@@ -1,4 +1,4 @@
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from db.connection import engine
 
 def get_schema_string() -> str:
@@ -6,6 +6,10 @@ def get_schema_string() -> str:
     schema_parts = []
 
     for table_name in inspector.get_table_names():
+        # Skip system and history tables
+        if table_name in ("query_history", "spatial_ref_sys"):
+            continue
+
         columns = inspector.get_columns(table_name)
         foreign_keys = inspector.get_foreign_keys(table_name)
         pk = inspector.get_pk_constraint(table_name)
@@ -26,10 +30,27 @@ def get_schema_string() -> str:
                 f"{fk['referred_table']}.{fk['referred_columns']}"
             )
 
+        # Get 3 sample rows to help the LLM understand column values
+        sample_data_str = ""
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text(f"SELECT * FROM {table_name} LIMIT 3"))
+                rows = result.fetchall()
+                if rows:
+                    sample_data_str = "\nSample Rows:\n"
+                    cols = result.keys()
+                    for row in rows:
+                        row_dict = dict(zip(cols, row))
+                        sample_data_str += f"  {row_dict}\n"
+        except Exception as e:
+            sample_data_str = f"\n(Could not retrieve sample data: {e})"
+
         table_block = f"Table: {table_name}\nColumns:\n"
         table_block += "\n".join(col_definitions)
         if fk_parts:
             table_block += "\nForeign Keys:\n" + "\n".join(fk_parts)
+        if sample_data_str:
+            table_block += sample_data_str
 
         schema_parts.append(table_block)
 

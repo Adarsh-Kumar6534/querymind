@@ -1,21 +1,29 @@
+import logging
 from sqlalchemy import text
 from db.connection import engine
 
+logger = logging.getLogger(__name__)
+
 def ensure_history_table():
-    with engine.connect() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS query_history (
-                id SERIAL PRIMARY KEY,
-                question TEXT NOT NULL,
-                generated_sql TEXT NOT NULL,
-                row_count INTEGER,
-                attempts INTEGER DEFAULT 1,
-                success BOOLEAN DEFAULT TRUE,
-                error_message TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS query_history (
+                    id SERIAL PRIMARY KEY,
+                    question TEXT NOT NULL,
+                    generated_sql TEXT NOT NULL,
+                    row_count INTEGER,
+                    attempts INTEGER DEFAULT 1,
+                    success BOOLEAN DEFAULT TRUE,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            logger.info("[HISTORY] table check/creation success")
+    except Exception as e:
+        logger.error(f"[HISTORY] FAILED to ensure history table: {e}")
+        raise
 
 
 def save_query(question: str, sql: str, row_count: int,
@@ -31,8 +39,9 @@ def save_query(question: str, sql: str, row_count: int,
                 "att": attempts, "suc": success, "err": error
             })
             conn.commit()
+            logger.info(f"[HISTORY] Saved: {question[:50]}...")
     except Exception as e:
-        pass
+        logger.warning(f"[HISTORY] FAILED to save query: {e}")
 
 
 def get_history(limit: int = 20) -> list[dict]:
@@ -45,6 +54,8 @@ def get_history(limit: int = 20) -> list[dict]:
                 ORDER BY created_at DESC
                 LIMIT :limit
             """), {"limit": limit}).fetchall()
+            logger.info(f"[HISTORY] Successfully fetched {len(rows)} records")
             return [dict(r._mapping) for r in rows]
-    except Exception:
+    except Exception as e:
+        logger.error(f"[HISTORY] FAILED to fetch history: {e}")
         return []

@@ -77,6 +77,8 @@ async def schema():
 @api_router.post("/query")
 @app.post("/query")
 async def query(req: QueryRequest):
+    import time
+    start_time = time.time()
     logger.info(f"[QUERY] Received question: {req.question[:100]}...")
 
     if not req.question.strip():
@@ -85,29 +87,33 @@ async def query(req: QueryRequest):
     try:
         cached = cache_get(req.question)
         if cached:
-            logger.info(f"[QUERY] Cache hit (score: {cached.get('cache_score', 'N/A')})")
+            logger.info(f"[QUERY] Cache hit in {time.time() - start_time:.2f}s")
             return cached
         logger.info("[QUERY] Cache miss, generating SQL...")
     except Exception as e:
         logger.warning(f"[QUERY] Cache lookup failed, proceeding without cache: {e}")
 
+    step_start = time.time()
     try:
         schema = get_schema_string()
-        logger.info(f"[QUERY] Schema retrieved ({len(schema)} bytes)")
+        logger.info(f"[QUERY] Schema retrieved in {time.time() - step_start:.2f}s ({len(schema)} bytes)")
     except Exception as e:
         logger.error(f"[QUERY] Failed to get schema: {e}")
         raise HTTPException(status_code=503, detail=f"Database schema unavailable: {e}")
 
+    step_start = time.time()
     try:
         prompt = build_prompt(schema, req.question)
         initial_sql = await generate_sql(prompt)
-        logger.info(f"[QUERY] Generated SQL: {initial_sql[:200]}...")
+        logger.info(f"[QUERY] Initial SQL generated in {time.time() - step_start:.2f}s")
     except Exception as e:
         logger.error(f"[QUERY] LLM generation failed: {e}")
         raise HTTPException(status_code=504, detail=f"LLM timeout: {e}")
 
     # Execute with overall timeout (60 seconds max for entire query execution)
+    step_start = time.time()
     import asyncio
+    result = None
     try:
         result = await asyncio.wait_for(
             asyncio.get_event_loop().run_in_executor(
@@ -119,14 +125,29 @@ async def query(req: QueryRequest):
                     engine=engine
                 )
             ),
-            timeout=60.0
+            timeout=80.0 # Slightly increased backend timeout to match frontend
         )
+        logger.info(f"[QUERY] Execution with correction completed in {time.time() - step_start:.2f}s")
     except asyncio.TimeoutError:
-        logger.error("[QUERY] Query execution timed out after 60 seconds")
-        raise HTTPException(status_code=504, detail="Query execution timed out after 60 seconds")
+        logger.error("[QUERY] Query execution timed out after 80 seconds")
+        save_query(req.question, initial_sql, 0, 1, False, "Query timed out after 80s")
+        raise HTTPException(status_code=504, detail="Query execution timed out after 80 seconds")
+    except Exception as e:
+        logger.error(f"[QUERY] Unexpected error: {e}")
+        save_query(req.question, initial_sql, 0, 1, False, str(e))
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
 
+    # Handle explicit failure from self-correction loop
     if not result["success"]:
         logger.error(f"[QUERY] Execution failed after {result['attempts']} attempts: {result.get('error')}")
+        save_query(
+            question=req.question,
+            sql=result["sql"],
+            row_count=0,
+            attempts=result["attempts"],
+            success=False,
+            error=result.get("error")
+        )
         raise HTTPException(
             status_code=422,
             detail={
@@ -161,7 +182,7 @@ async def query(req: QueryRequest):
     except Exception as e:
         logger.warning(f"[QUERY] Cache set failed: {e}")
 
-    logger.info(f"[QUERY] Success! {len(result['data'])} rows returned")
+    logger.info(f"[QUERY] Total time: {time.time() - start_time:.2f}s. Success! {len(result['data'])} rows returned")
     return response
 
 @api_router.post("/upload-csv")

@@ -11,7 +11,7 @@ console.log('[API] Using backend URL:', API_URL)
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 60000 // Increase to 60 seconds for Render cold starts
+  timeout: 120000 // Increase to 120 seconds for Render cold starts and LLM retries
 })
 
 // Add logging interceptor
