@@ -1,3 +1,4 @@
+import asyncio
 from llm.groq_client import generate_sql
 from llm.prompt_builder import build_correction_prompt
 from query.executor import execute_query
@@ -42,7 +43,8 @@ def execute_with_self_correction(
                         failed_sql=sql,
                         error=last_error
                     )
-                    sql = generate_sql(correction_prompt)  # Now sync, has built-in timeout
+                    # Run async generate_sql in sync context
+                    sql = asyncio.run(generate_sql(correction_prompt))
                     logger.info(f"[ATTEMPT {attempt}] LLM provided corrected SQL: {sql[:80]}...")
                 except Exception as correction_error:
                     last_error = f"LLM correction failed: {correction_error}"

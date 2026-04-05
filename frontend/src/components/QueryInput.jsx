@@ -101,9 +101,16 @@ export default function QueryInput({ question, setQuestion, onQuerySubmit, setRe
           <input ref={fileRef} type="file" accept=".csv" onChange={async e => {
             const f = e.target.files[0]; if(!f) return
             setLoading(true)
-            try { const r=await uploadCSV(f); alert(`Table "${r.table_name}" created — ${r.row_count} rows`) }
-            catch { setError('CSV upload failed') }
-            finally { setLoading(false) }
+            try {
+              const r = await uploadCSV(f)
+              alert(`Table "${r.table_name}" created — ${r.row_count} rows. You can now query it!`)
+              // Clear file input so same file can be selected again
+              e.target.value = ''
+            } catch (err) {
+              setError(err.response?.data?.detail || 'CSV upload failed')
+            } finally {
+              setLoading(false)
+            }
           }} style={{display:'none'}} />
           <span style={{ marginLeft:'auto', fontSize:10, color:'var(--text3)', fontFamily:'JetBrains Mono, monospace' }}>
             Ctrl + Enter

@@ -17,7 +17,14 @@ export default function App() {
   const [showIntro, setShowIntro] = useState(true)
 
   const refreshHistory = async () => {
-    try { setHistory(await fetchHistory()) } catch {}
+    try {
+      const hist = await fetchHistory()
+      setHistory(hist)
+      console.log('[App] History loaded:', hist.length, 'items')
+    } catch (err) {
+      console.error('[App] Failed to load history:', err.message)
+      // Don't set error state - history failure shouldn't block UI
+    }
   }
 
   useEffect(() => { refreshHistory() }, [])

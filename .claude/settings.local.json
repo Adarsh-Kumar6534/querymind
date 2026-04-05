@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(python -c \"from csv_handler import upload_csv_to_postgres; print\\('Import OK'\\)\")",
+      "Bash(python test_upload.py)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(curl -s https://querymind-api.onrender.com/health)",
+      "Bash(uvicorn main:app:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/history)",
+      "Bash(curl -s http://localhost:8000/schema)",
+      "Bash(npm run:*)",
+      "Bash(curl -s http://localhost:5173)"
+    ]
+  }
+}

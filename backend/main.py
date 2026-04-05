@@ -1,6 +1,6 @@
 import logging
 import sys
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -43,6 +43,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="QueryMind API", version="1.0.0", lifespan=lifespan)
 
+# API Router
+api_router = APIRouter(prefix="/api")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -60,18 +63,18 @@ class QueryRequest(BaseModel):
 async def root():
     return {"status": "QueryMind is running", "version": "1.0.0"}
 
-@app.get("/health")
+@api_router.get("/health")
 async def health():
     return {"status": "ok"}
 
-@app.get("/schema")
+@api_router.get("/schema")
 async def schema():
     return {
         "schema": get_schema_string(),
         "tables": get_table_names()
     }
 
-@app.post("/query")
+@api_router.post("/query")
 async def query(req: QueryRequest):
     logger.info(f"[QUERY] Received question: {req.question[:100]}...")
 
@@ -102,12 +105,24 @@ async def query(req: QueryRequest):
         logger.error(f"[QUERY] LLM generation failed: {e}")
         raise HTTPException(status_code=504, detail=f"LLM timeout: {e}")
 
-    result = execute_with_self_correction(
-        initial_sql=initial_sql,
-        schema=schema,
-        question=req.question,
-        engine=engine
-    )
+    # Execute with overall timeout (60 seconds max for entire query execution)
+    import asyncio
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: execute_with_self_correction(
+                    initial_sql=initial_sql,
+                    schema=schema,
+                    question=req.question,
+                    engine=engine
+                )
+            ),
+            timeout=60.0
+        )
+    except asyncio.TimeoutError:
+        logger.error("[QUERY] Query execution timed out after 60 seconds")
+        raise HTTPException(status_code=504, detail="Query execution timed out after 60 seconds")
 
     if not result["success"]:
         logger.error(f"[QUERY] Execution failed after {result['attempts']} attempts: {result.get('error')}")
@@ -148,22 +163,30 @@ async def query(req: QueryRequest):
     logger.info(f"[QUERY] Success! {len(result['data'])} rows returned")
     return response
 
-@app.post("/upload-csv")
+@api_router.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
-    if not file.filename.endswith(".csv"):
+    if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
-    contents = await file.read()
-    info = upload_csv_to_postgres(contents, file.filename)
-    return {"message": "CSV uploaded and table created successfully", **info}
+    try:
+        contents = await file.read()
+        info = upload_csv_to_postgres(contents, file.filename)
+        return {"message": "CSV uploaded and table created successfully", **info}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[UPLOAD] Failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-@app.get("/history")
+@api_router.get("/history")
 async def history(limit: int = 20):
     return {"history": get_history(limit)}
 
-@app.delete("/cache")
+@api_router.delete("/cache")
 async def clear_cache():
     from query.cache import _get_redis
     client = _get_redis()
     client.flushdb()
     return {"message": "Cache cleared successfully"}
+
+app.include_router(api_router)
 

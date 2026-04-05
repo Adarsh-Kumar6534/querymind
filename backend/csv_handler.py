@@ -17,7 +17,22 @@ def infer_pg_type(dtype) -> str:
     return "TEXT"
 
 def upload_csv_to_postgres(file_bytes: bytes, original_filename: str) -> dict:
-    df = pd.read_csv(io.BytesIO(file_bytes))
+    # Decode bytes to string, handling different encodings
+    try:
+        file_str = file_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        file_str = file_bytes.decode('latin-1')
+
+    # Read CSV with better error handling
+    df = pd.read_csv(
+        io.StringIO(file_str),
+        on_bad_lines='skip',
+        skipinitialspace=True
+    )
+
+    if df.empty:
+        raise ValueError("CSV file is empty")
+
     df.columns = [sanitize_name(c) for c in df.columns]
     table_name = sanitize_name(original_filename.replace(".csv", ""))
 
