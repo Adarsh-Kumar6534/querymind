@@ -75,12 +75,9 @@ async def api_health():
 @api_router.get("/schema")
 @app.get("/schema")
 async def schema():
-    import asyncio
-    schema_str = await asyncio.get_event_loop().run_in_executor(None, get_schema_string)
-    tables = await asyncio.get_event_loop().run_in_executor(None, get_table_names)
     return {
-        "schema": schema_str,
-        "tables": tables
+        "schema": get_schema_string(),
+        "tables": get_table_names()
     }
 
 @api_router.post("/query")
@@ -104,15 +101,12 @@ async def query(req: QueryRequest):
 
     step_start = time.time()
     try:
-        # Run synchronous introspection in executor to avoid blocking the event loop
-        schema = await asyncio.get_event_loop().run_in_executor(
-            None,
-            get_schema_string
-        )
+        # get_schema_string is now cached and fast
+        schema = get_schema_string()
         logger.info(f"[QUERY] Schema retrieved in {time.time() - step_start:.2f}s ({len(schema)} bytes)")
     except Exception as e:
         logger.error(f"[QUERY] Failed to get schema: {e}")
-        raise HTTPException(status_code=503, detail=f"Database schema unavailable: {e}")
+        schema = "Schema unavailable."
 
     step_start = time.time()
     try:
