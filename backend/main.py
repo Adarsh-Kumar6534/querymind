@@ -31,13 +31,18 @@ async def lifespan(app: FastAPI):
         logger.info("[STARTUP] History table ready.")
     except Exception as e:
         logger.warning(f"[STARTUP] Could not initialize history table: {e}")
-        logger.warning("[STARTUP] App will continue — check your DATABASE_URL env var in Render.")
+
+    # Check for Groq API Key
+    if not settings.groq_api_key or len(settings.groq_api_key) < 10:
+        logger.error("[STARTUP] !!! WARNING: GROQ_API_KEY IS MISSING OR TOO SHORT. QUERIES WILL FAIL !!!")
+    else:
+        logger.info(f"[STARTUP] Groq API configuration detected.")
 
     # Log startup info
     logger.info(f"[STARTUP] QueryMind API v1.0.0 starting")
     logger.info(f"[STARTUP] Database: {'neon.tech' in settings.database_url and 'Neon' or 'PostgreSQL'}")
     logger.info(f"[STARTUP] Redis cache: {'configured' if settings.redis_url else 'not configured'}")
-    logger.info(f"[STARTUP] LLM: {'Ollama' if settings.use_ollama else 'Groq (llama-3.1-8b-instant)'}")
+    logger.info(f"[STARTUP] Semantic cache: {'disabled (Render)' if os.environ.get('DISABLE_SEMANTIC_CACHE', 'true').lower() == 'true' else 'enabled'}")
     yield
 
 

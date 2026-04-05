@@ -4,10 +4,11 @@ import numpy as np
 from config import settings
 import hashlib
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-# Lazy singletons — initialized on first use, not at import time
+# Lazy singletons
 _redis_client = None
 _model = None
 _model_load_attempted = False
@@ -15,29 +16,38 @@ _model_load_attempted = False
 def _get_redis():
     global _redis_client
     if _redis_client is None:
+        if not settings.redis_url:
+            return None
         try:
             _redis_client = redis.from_url(
                 settings.redis_url,
                 decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
+                socket_connect_timeout=2,
+                socket_timeout=2
             )
+            _redis_client.ping()
         except Exception as e:
-            logger.warning(f"Redis connection failed: {e}")
+            logger.warning(f"[CACHE] Redis connection failed: {e}")
             return None
     return _redis_client
 
 def _get_model():
     global _model, _model_load_attempted
+    # Disable semantic cache on Render by default to save RAM/Time unless explicitly enabled
+    if os.environ.get("DISABLE_SEMANTIC_CACHE", "true").lower() == "true":
+        return None
+        
     if _model_load_attempted:
         return _model
     _model_load_attempted = True
     try:
+        logger.info("[CACHE] Loading embedding model (this may take a while on first run)...")
         from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("[CACHE] Embedding model loaded successfully.")
         return _model
     except Exception as e:
-        logger.warning(f"Failed to load embedding model: {e}")
+        logger.warning(f"[CACHE] Failed to load embedding model: {e}")
         return None
 
 

@@ -2,17 +2,25 @@ from groq import Groq
 import httpx
 from config import settings
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
+# Sanity check for API Key
+_api_key = settings.groq_api_key or os.environ.get("GROQ_API_KEY")
+if not _api_key or len(_api_key) < 10:
+    logger.error("[LLM] GROQ_API_KEY is missing or invalid! Queries will fail.")
+else:
+    logger.info(f"[LLM] Groq client initialized with key starting with: {_api_key[:5]}...")
+
 # Create httpx client with explicit timeouts
 _httpx_client = httpx.Client(
-    timeout=15.0,
+    timeout=20.0, # Increased timeout for Groq API
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
 )
 
 groq_client = Groq(
-    api_key=settings.groq_api_key,
+    api_key=_api_key,
     http_client=_httpx_client
 )
 

@@ -41,5 +41,8 @@ export const fetchHistory = () =>
 export const fetchSchema = () =>
   api.get('/schema').then(r => r.data)
 
+export const checkHealth = () =>
+  api.get('/health').then(r => r.data)
+
 export const clearCache = () =>
   api.delete('/cache').then(r => r.data)

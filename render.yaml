@@ -20,4 +20,6 @@ services:
         value: "0.92"
       - key: USE_OLLAMA
         value: "false"
+      - key: DISABLE_SEMANTIC_CACHE
+        value: "true"
     healthCheckPath: /health

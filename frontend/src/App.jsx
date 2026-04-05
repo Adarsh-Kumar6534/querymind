@@ -6,7 +6,7 @@ import ChartPanel from './components/ChartPanel'
 import HistorySidebar from './components/HistorySidebar'
 import IntroPage from './components/IntroPage'
 import AnimatedLogo, { AnimatedText } from './components/AnimatedLogo'
-import { fetchHistory, sendQuery } from './api/client'
+import { fetchHistory, sendQuery, checkHealth } from './api/client'
 
 export default function App() {
   const [question, setQuestion] = useState('')
@@ -15,6 +15,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [history, setHistory] = useState([])
   const [showIntro, setShowIntro] = useState(true)
+  const [systemStatus, setSystemStatus] = useState('connecting') // connecting, online, offline
 
   const refreshHistory = async () => {
     try {
@@ -23,11 +24,24 @@ export default function App() {
       console.log('[App] History loaded:', hist.length, 'items')
     } catch (err) {
       console.error('[App] Failed to load history:', err.message)
-      // Don't set error state - history failure shouldn't block UI
     }
   }
 
-  useEffect(() => { refreshHistory() }, [])
+  const monitorHealth = async () => {
+    try {
+      await checkHealth()
+      setSystemStatus('online')
+    } catch (err) {
+      setSystemStatus('offline')
+    }
+  }
+
+  useEffect(() => {
+    refreshHistory()
+    monitorHealth()
+    const interval = setInterval(monitorHealth, 30000) // Check every 30s
+    return () => clearInterval(interval)
+  }, [])
 
   const runQuery = async (qText) => {
     if (!qText.trim() || loading) return
@@ -38,8 +52,12 @@ export default function App() {
       const res = await sendQuery(qText)
       setResult(res)
       refreshHistory()
+      setSystemStatus('online')
     } catch (e) {
       setError(e.response?.data?.detail?.message || e.message || 'Query failed')
+      if (e.message?.includes('timeout') || e.message?.includes('Network Error')) {
+        setSystemStatus('offline')
+      }
     } finally {
       setLoading(false)
     }
@@ -59,7 +77,7 @@ export default function App() {
       <HistorySidebar history={history} onSelect={runQuery} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <Topbar />
+        <Topbar status={systemStatus} />
         <div style={{
           flex: 1, overflowY: 'auto',
           padding: '28px 32px',
@@ -88,7 +106,14 @@ export default function App() {
 }
 
 /* ─── Topbar ───────────────────────────────────────────────────── */
-function Topbar() {
+function Topbar({ status }) {
+  const statusColors = {
+    online: '#22c55e',
+    offline: '#ef4444',
+    connecting: '#eab308'
+  }
+  const color = statusColors[status] || '#94a3b8'
+
   return (
     <div style={{
       padding: '0 28px',
@@ -138,13 +163,21 @@ function Topbar() {
 
       {/* Right badges */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 10 }}>
           <div style={{
             width: 5, height: 5, borderRadius: '50%',
-            background: '#22c55e', boxShadow: '0 0 7px #22c55e',
-            animation: 'statusPulse 1.8s ease-in-out infinite',
+            background: color, boxShadow: `0 0 7px ${color}`,
+            animation: status === 'online' ? 'statusPulse 1.8s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ fontSize: 8, color: 'rgba(34,197,94,0.6)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.14em' }}>ONLINE</span>
+          <span style={{
+            fontSize: 8,
+            color: color + '99',
+            fontFamily: 'JetBrains Mono, monospace',
+            letterSpacing: '0.14em',
+            fontWeight: 700
+          }}>
+            {status.toUpperCase()}
+          </span>
         </div>
         {[['FinSight DB', 'var(--teal)'], ['LLaMA 3.1 70B', 'var(--purple)']].map(([label, color]) => (
           <div key={label} style={{
