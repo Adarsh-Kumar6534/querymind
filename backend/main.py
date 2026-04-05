@@ -48,10 +48,8 @@ api_router = APIRouter(prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://querymind-hvgq.vercel.app",
-        "http://localhost:5173",  # local dev
-    ],
+    allow_origins=["*"],  # Allow all origins for maximum compatibility
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
