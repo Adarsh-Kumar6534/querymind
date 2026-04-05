@@ -60,14 +60,16 @@ class QueryRequest(BaseModel):
     question: str
 
 @app.get("/")
-async def root():
-    return {"status": "QueryMind is running", "version": "1.0.0"}
+@app.get("/health")
+async def health():
+    return {"status": "ok", "version": "1.0.0"}
 
 @api_router.get("/health")
-async def health():
+async def api_health():
     return {"status": "ok"}
 
 @api_router.get("/schema")
+@app.get("/schema")
 async def schema():
     return {
         "schema": get_schema_string(),
@@ -75,6 +77,7 @@ async def schema():
     }
 
 @api_router.post("/query")
+@app.post("/query")
 async def query(req: QueryRequest):
     logger.info(f"[QUERY] Received question: {req.question[:100]}...")
 
@@ -164,6 +167,7 @@ async def query(req: QueryRequest):
     return response
 
 @api_router.post("/upload-csv")
+@app.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
@@ -178,10 +182,12 @@ async def upload_csv(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @api_router.get("/history")
+@app.get("/history")
 async def history(limit: int = 20):
     return {"history": get_history(limit)}
 
 @api_router.delete("/cache")
+@app.delete("/cache")
 async def clear_cache():
     from query.cache import _get_redis
     client = _get_redis()
