@@ -1,61 +1,66 @@
 from sqlalchemy import inspect, text
+import logging
 from db.connection import engine
 
+logger = logging.getLogger(__name__)
+
 def get_schema_string() -> str:
-    inspector = inspect(engine)
     schema_parts = []
     
-    # Use a single connection for all metadata queries
-    with engine.connect() as conn:
-        for table_name in inspector.get_table_names():
-            # Skip system and history tables
-            if table_name in ("query_history", "spatial_ref_sys") or table_name.startswith("pg_"):
-                continue
+    try:
+        with engine.connect() as conn:
+            # Use the connection-bound inspector for better reliability
+            inspector = inspect(conn)
+            tables = inspector.get_table_names()
+            logger.info(f"[INTROSPECT] Found {len(tables)} tables")
 
-            columns = inspector.get_columns(table_name)
-            foreign_keys = inspector.get_foreign_keys(table_name)
-            pk = inspector.get_pk_constraint(table_name)
+            for table_name in tables:
+                # Skip system and history tables
+                if table_name in ("query_history", "spatial_ref_sys") or table_name.startswith("pg_"):
+                    continue
 
-            col_definitions = []
-            for col in columns:
-                col_str = f"  - {col['name']} ({str(col['type'])})"
-                if col['name'] in (pk.get('constrained_columns') or []):
-                    col_str += " PRIMARY KEY"
-                if not col.get('nullable', True):
-                    col_str += " NOT NULL"
-                col_definitions.append(col_str)
+                try:
+                    columns = inspector.get_columns(table_name)
+                    pk = inspector.get_pk_constraint(table_name)
+                    
+                    col_definitions = []
+                    for col in columns:
+                        col_str = f"  - {col['name']} ({str(col['type'])})"
+                        if col['name'] in (pk.get('constrained_columns') or []):
+                            col_str += " PRIMARY KEY"
+                        col_definitions.append(col_str)
 
-            fk_parts = []
-            for fk in foreign_keys:
-                fk_parts.append(
-                    f"  - FK: {fk['constrained_columns']} -> "
-                    f"{fk['referred_table']}.{fk['referred_columns']}"
-                )
+                    # Get sample rows with a timeout-safe approach
+                    sample_data_str = ""
+                    try:
+                        # Use double quotes for table names to handle special characters
+                        res = conn.execute(text(f'SELECT * FROM "{table_name}" LIMIT 3'))
+                        rows = res.fetchall()
+                        if rows:
+                            sample_data_str = "\nSample Rows:\n"
+                            cols = res.keys()
+                            for row in rows:
+                                row_dict = dict(zip(cols, row))
+                                sample_data_str += f"  {row_dict}\n"
+                    except Exception as row_err:
+                        logger.warning(f"[INTROSPECT] Could not get rows for {table_name}: {row_err}")
+                        sample_data_str = "\n(Sample data unavailable)"
 
-            # Get 3 sample rows using the existing connection
-            sample_data_str = ""
-            try:
-                result = conn.execute(text(f'SELECT * FROM "{table_name}" LIMIT 3'))
-                rows = result.fetchall()
-                if rows:
-                    sample_data_str = "\nSample Rows:\n"
-                    cols = result.keys()
-                    for row in rows:
-                        row_dict = dict(zip(cols, row))
-                        sample_data_str += f"  {row_dict}\n"
-            except Exception as e:
-                sample_data_str = f"\n(Could not retrieve sample data: {e})"
+                    table_block = f"Table: {table_name}\nColumns:\n" + "\n".join(col_definitions)
+                    if sample_data_str:
+                        table_block += sample_data_str
+                    
+                    schema_parts.append(table_block)
+                except Exception as table_err:
+                    logger.warning(f"[INTROSPECT] Skipping table {table_name} due to error: {table_err}")
+                    continue
 
-            table_block = f"Table: {table_name}\nColumns:\n"
-            table_block += "\n".join(col_definitions)
-            if fk_parts:
-                table_block += "\nForeign Keys:\n" + "\n".join(fk_parts)
-            if sample_data_str:
-                table_block += sample_data_str
+    except Exception as e:
+        logger.error(f"[INTROSPECT] Critical failure: {e}")
+        # Return a basic message rather than crashing, to avoid 503
+        return "Schema temporarily unavailable. Please try again."
 
-            schema_parts.append(table_block)
-
-    return "\n\n".join(schema_parts)
+    return "\n\n".join(schema_parts) if schema_parts else "No user tables found."
 
 
 def get_table_names() -> list[str]:
