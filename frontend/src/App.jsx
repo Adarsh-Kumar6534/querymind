@@ -68,7 +68,6 @@ export default function App() {
           <QueryInput
             question={question} setQuestion={setQuestion}
             onQuerySubmit={() => runQuery(question)}
-            setResult={handleResult} setLoading={setLoading}
             setError={setError} loading={loading}
           />
           {error && <ErrorBanner message={error} />}
