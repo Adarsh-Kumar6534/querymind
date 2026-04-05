@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
